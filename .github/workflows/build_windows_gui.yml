@@ -1,0 +1,53 @@
+name: Build Windows GUI
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "pyheic_struct/**"
+      - "scripts/batch_media_manager.py"
+      - "packaging/README_windows_gui.txt"
+      - ".github/workflows/build_windows_gui.yml"
+      - "pyproject.toml"
+
+jobs:
+  build-windows-gui:
+    name: Windows GUI executable
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[full]" pyinstaller
+
+      - name: Build Windows GUI
+        run: |
+          pyinstaller --noconfirm --clean --windowed --onedir --name LiveMotionPhotoManager --collect-all pillow_heif --collect-all pyheic_struct scripts/batch_media_manager.py
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/LiveMotionPhotoManager/LiveMotionPhotoManager.exe")) {
+            throw "LiveMotionPhotoManager.exe was not created"
+          }
+
+      - name: Prepare artifact
+        shell: pwsh
+        run: |
+          Copy-Item -Path packaging/README_windows_gui.txt -Destination dist/LiveMotionPhotoManager/README.txt
+          Compress-Archive -Path dist/LiveMotionPhotoManager -DestinationPath LiveMotionPhotoManager-windows.zip
+
+      - name: Upload Windows GUI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiveMotionPhotoManager-windows
+          path: LiveMotionPhotoManager-windows.zip
