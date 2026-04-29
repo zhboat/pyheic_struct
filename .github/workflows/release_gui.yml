@@ -1,0 +1,133 @@
+name: Release GUI Desktop Apps
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create or update, for example v0.1.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-gui:
+    name: Build Windows GUI
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[full]" pyinstaller
+
+      - name: Build app
+        run: |
+          pyinstaller --noconfirm --clean --windowed --onedir --name LiveMotionPhotoManager --collect-all pillow_heif --collect-all pyheic_struct scripts/batch_media_manager.py
+
+      - name: Package app
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/LiveMotionPhotoManager/LiveMotionPhotoManager.exe")) {
+            throw "LiveMotionPhotoManager.exe was not created"
+          }
+          Copy-Item -Path packaging/README_windows_gui.txt -Destination dist/LiveMotionPhotoManager/README.txt
+          Compress-Archive -Path dist/LiveMotionPhotoManager -DestinationPath LiveMotionPhotoManager-windows.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-windows
+          path: LiveMotionPhotoManager-windows.zip
+
+  build-macos-gui:
+    name: Build macOS GUI
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install ".[full]" pyinstaller
+
+      - name: Build app
+        run: |
+          pyinstaller --noconfirm --clean --windowed --onedir --name LiveMotionPhotoManager --collect-all pillow_heif --collect-all pyheic_struct scripts/batch_media_manager.py
+
+      - name: Package app
+        run: |
+          test -d dist/LiveMotionPhotoManager.app
+          mkdir -p release/LiveMotionPhotoManager-macos
+          cp -R dist/LiveMotionPhotoManager.app release/LiveMotionPhotoManager-macos/
+          cp packaging/README_macos_gui.txt release/LiveMotionPhotoManager-macos/README.txt
+          ditto -c -k --sequesterRsrc --keepParent release/LiveMotionPhotoManager-macos LiveMotionPhotoManager-macos.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-macos
+          path: LiveMotionPhotoManager-macos.zip
+
+  publish-release:
+    name: Publish GUI release assets
+    runs-on: ubuntu-latest
+    needs:
+      - build-windows-gui
+      - build-macos-gui
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Resolve release tag
+        id: release_tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+
+          if [ -z "$tag" ]; then
+            echo "::error::Release tag is empty."
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ steps.release_tag.outputs.tag }}
+        shell: bash
+        run: |
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" release-assets/LiveMotionPhotoManager-windows.zip release-assets/LiveMotionPhotoManager-macos.zip --clobber
+          else
+            gh release create "$TAG_NAME" release-assets/LiveMotionPhotoManager-windows.zip release-assets/LiveMotionPhotoManager-macos.zip \
+              --title "$TAG_NAME" \
+              --notes "GUI desktop builds for Windows and macOS."
