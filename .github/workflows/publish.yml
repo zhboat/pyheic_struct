@@ -1,9 +1,6 @@
 name: Publish pyheic-struct to PyPI
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
 
 jobs:
