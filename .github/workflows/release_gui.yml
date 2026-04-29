@@ -131,3 +131,4 @@ jobs:
             gh release create "$TAG_NAME" release-assets/LiveMotionPhotoManager-windows.zip release-assets/LiveMotionPhotoManager-macos.zip \
               --title "$TAG_NAME" \
               --notes "GUI desktop builds for Windows and macOS."
+          fi
